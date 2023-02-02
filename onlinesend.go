@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"sms_timetosend_task/database"
 	"sms_timetosend_task/log"
 	"sms_timetosend_task/redis"
@@ -34,13 +35,13 @@ func smsOnlineTimetoSendService(ch chan string) {
 }
 
 type TimetosendItem struct {
-	Sendlist string                 `gorm:"column(sendlist)" json:"sendlist"`
-	Account  string                 `gorm:"column(account)" json:"account"`
-	Appid    string                 `gorm:"column(appid)" json:"appid"`
-	Project  string                 `gorm:"column(project)" json:"project"`
-	Address  string                 `gorm:"column(address)" json:"address"`
-	Send     string                 `gorm:"column(send)" json:"send"`
-	Vars     map[string]interface{} `gorm:"vars" json:"vars"`
+	Sendlist string      `gorm:"column(sendlist)" json:"sendlist"`
+	Account  string      `gorm:"column(account)" json:"account"`
+	Appid    string      `gorm:"column(appid)" json:"appid"`
+	Project  string      `gorm:"column(project)" json:"project"`
+	Address  string      `gorm:"column(address)" json:"address"`
+	Send     string      `gorm:"column(send)" json:"send"`
+	Vars     interface{} `gorm:"vars" json:"vars"`
 }
 
 type TimetosendSql struct {
@@ -64,7 +65,7 @@ func smsTimetosendHandler(data []byte) {
 			tempItem := &TimetosendItem{}
 			err = json.Unmarshal(result[1].([]byte), tempItem)
 			tempItem.Sendlist = sendlist
-			bs, _ := json.Marshal(tempItem.Vars)
+			//bs, _ := json.Marshal(tempItem.Vars)
 			s := &TimetosendSql{
 				Sendlist: tempItem.Sendlist,
 				Account:  tempItem.Account,
@@ -72,7 +73,12 @@ func smsTimetosendHandler(data []byte) {
 				Project:  tempItem.Project,
 				Address:  tempItem.Address,
 				Send:     tempItem.Send,
-				Vars:     string(bs),
+			}
+			if tempItem.Vars == "" {
+				s.Vars = ""
+			} else {
+				bs, _ := json.Marshal(tempItem.Vars)
+				s.Vars = string(bs)
 			}
 			if err != nil {
 				log.Logger.Error("数据解析错误", string(result[1].([]byte)), err)
@@ -82,13 +88,14 @@ func smsTimetosendHandler(data []byte) {
 				temp := pack
 				pack = []TimetosendSql{}
 				counter += 1000
-				go func() {
-					ch <- 1
+				ch <- 1
+				go func(ch chan int, temp []TimetosendSql) {
 					database.DbQueue.Table("message_send_queue").Create(temp)
 					<-ch
-				}()
+				}(ch, temp)
 			}
 		} else {
+			fmt.Println(pack)
 			if len(pack) > 0 {
 				database.DbQueue.Table("message_send_queue").Create(pack)
 				pack = []TimetosendSql{}
