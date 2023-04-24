@@ -40,6 +40,7 @@ var AccountRedis *Redis
 var SRedis *Redis
 var Log *Logs
 var DefautSpeed chan int
+var KAFKA_HOST string
 
 var MailConfig map[string]string
 var SmsConfig map[string]string
@@ -53,6 +54,8 @@ func Reload() {
 	if err != nil {
 		panic(err)
 	}
+
+	KAFKA_HOST = cf.String("KAFKA::host")
 	PublicPort, _ := cf.Int("DBPublic::port")
 	teport, _ := cf.Int("DBTe::port")
 	queueport, _ := cf.Int("DBQueue::port")

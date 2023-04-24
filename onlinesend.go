@@ -6,38 +6,68 @@ import (
 	"sms_timetosend_task/database"
 	"sms_timetosend_task/log"
 	"sms_timetosend_task/redis"
+	"time"
 )
 
 const TIME_LAYOUT = "2006-01-02 15:04:05"
 const MaxRoutineNum = 20
 
-//短信定时发送服务----------------------------------------
+func init() {
+}
+
+// 短信定时发送服务----------------------------------------
 func smsOnlineTimetoSendService(ch chan string) {
-	signal := true
-	log.Logger.Warning("SMS TimeToSend Service Starting")
 	for {
-		select {
-		case <-ch:
-			log.Logger.Warning("SMS TimeToSend Service Exiting ...")
-			signal = false
-			break
-		default:
-		}
-		if !signal {
-			break
-		}
 		result, err := redis.Conn.Brpop("sms_timetosend_task", 30)
 		if err == nil {
-			log.Logger.Info(string(result[1].([]byte)))
-			go smsTimetosendHandler(result[1].([]byte))
+			// go smsTimetosendHandler(result[1].([]byte))
+			sendlist := string(result[1].([]byte))
+			item := &SMSSendlistFromDB{}
+			db := database.DbPublic.Table("message_send_list").Select("timetosend").Where("id = ?", sendlist).Find(item)
+			if db.Error == nil {
+				timetosend, _ := time.Parse(TIME_LAYOUT, item.Timetosend)
+				if timetosend.Unix()-time.Now().Unix() > 4*3660 {
+					go smsTimetosendHandler(result[1].([]byte))
+				} else {
+					go func() {
+						for {
+							result, err := redis.Conn.Brpop("sms_timetosend_queue:"+sendlist, 1)
+							if err == nil {
+								tempItem := &TimetosendItem{}
+								err = json.Unmarshal(result[1].([]byte), tempItem)
+								if err == nil {
+									tmpdata := &tmpSmsMessageStruct{}
+									tmpdata.Address = tempItem.Address
+									if tempItem.Vars != "" {
+										bs, _ := json.Marshal(tempItem.Vars)
+										json.Unmarshal(bs, &tmpdata.Vars)
+
+									}
+									r, _ := json.Marshal(tmpdata)
+									log.Logger.Debug("submit data", string(r))
+									sendlist := "sms_send:" + tempItem.Account + ":" + sendlist
+									redis.Conn.Lpush(sendlist, string(r))
+								}
+								if err != nil {
+									log.Logger.Error("数据解析错误", string(result[1].([]byte)), err)
+								}
+							}
+						}
+					}()
+				}
+			}
 		}
 	}
+}
+
+type SMSSendlistFromDB struct {
+	Timetosend string `gorm:"column(timetosend)"`
 }
 
 type TimetosendItem struct {
 	Sendlist string      `gorm:"column(sendlist)" json:"sendlist"`
 	Account  string      `gorm:"column(account)" json:"account"`
-	Appid    string      `gorm:"column(appid)" json:"appid"`
+	Appid    interface{} `gorm:"column(appid)" json:"appid"`
 	Project  string      `gorm:"column(project)" json:"project"`
 	Address  string      `gorm:"column(address)" json:"address"`
 	Send     string      `gorm:"column(send)" json:"send"`
@@ -45,13 +75,18 @@ type TimetosendItem struct {
 }
 
 type TimetosendSql struct {
-	Sendlist string `gorm:"column(sendlist)" json:"sendlist"`
-	Account  string `gorm:"column(account)" json:"account"`
-	Appid    string `gorm:"column(appid)" json:"appid"`
-	Project  string `gorm:"column(project)" json:"project"`
-	Address  string `gorm:"column(address)" json:"address"`
-	Send     string `gorm:"column(send)" json:"send"`
-	Vars     string `gorm:"vars" json:"vars"`
+	Sendlist string      `gorm:"column(sendlist)" json:"sendlist"`
+	Account  string      `gorm:"column(account)" json:"account"`
+	Appid    interface{} `gorm:"column(appid)" json:"appid"`
+	Project  string      `gorm:"column(project)" json:"project"`
+	Address  string      `gorm:"column(address)" json:"address"`
+	Send     string      `gorm:"column(send)" json:"send"`
+	Vars     string      `gorm:"vars" json:"vars"`
+}
+
+type tmpSmsMessageStruct struct {
+	Address interface{}
+	Vars    map[string]interface{}
 }
 
 func smsTimetosendHandler(data []byte) {
@@ -110,7 +145,7 @@ func smsTimetosendHandler(data []byte) {
 
 }
 
-//彩信定时发送服务----------------------------------------
+// 彩信定时发送服务----------------------------------------
 func mmsOnlineTimetoSendService(ch chan string) {
 	signal := true
 	log.Logger.Warning("SMS TimeToSend Service Starting")
