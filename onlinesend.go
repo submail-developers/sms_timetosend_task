@@ -6,6 +6,7 @@ import (
 	"sms_timetosend_task/database"
 	"sms_timetosend_task/log"
 	"sms_timetosend_task/redis"
+	"strconv"
 	"time"
 )
 
@@ -31,7 +32,7 @@ func smsOnlineTimetoSendService(ch chan string) {
 				} else {
 					go func() {
 						for {
-							result, err := redis.Conn.Brpop("sms_timetosend_queue:"+sendlist, 1)
+							result, err := redis.Conn.Brpop("sms_timetosend_queue:"+sendlist, 5)
 							if err == nil {
 								tempItem := &TimetosendItem{}
 								err = json.Unmarshal(result[1].([]byte), tempItem)
@@ -51,6 +52,8 @@ func smsOnlineTimetoSendService(ch chan string) {
 								if err != nil {
 									log.Logger.Error("数据解析错误", string(result[1].([]byte)), err)
 								}
+							} else {
+								break
 							}
 						}
 					}()
@@ -75,13 +78,13 @@ type TimetosendItem struct {
 }
 
 type TimetosendSql struct {
-	Sendlist string      `gorm:"column(sendlist)" json:"sendlist"`
-	Account  string      `gorm:"column(account)" json:"account"`
-	Appid    interface{} `gorm:"column(appid)" json:"appid"`
-	Project  string      `gorm:"column(project)" json:"project"`
-	Address  string      `gorm:"column(address)" json:"address"`
-	Send     string      `gorm:"column(send)" json:"send"`
-	Vars     string      `gorm:"vars" json:"vars"`
+	Sendlist string `gorm:"column(sendlist)" json:"sendlist"`
+	Account  string `gorm:"column(account)" json:"account"`
+	Appid    string `gorm:"column(appid)" json:"appid"`
+	Project  string `gorm:"column(project)" json:"project"`
+	Address  string `gorm:"column(address)" json:"address"`
+	Send     string `gorm:"column(send)" json:"send"`
+	Vars     string `gorm:"vars" json:"vars"`
 }
 
 type tmpSmsMessageStruct struct {
@@ -100,11 +103,19 @@ func smsTimetosendHandler(data []byte) {
 			tempItem := &TimetosendItem{}
 			err = json.Unmarshal(result[1].([]byte), tempItem)
 			tempItem.Sendlist = sendlist
+
+			var appid string
+			switch tempItem.Appid.(type) {
+			case string:
+				appid = tempItem.Appid.(string)
+			case int:
+				appid = strconv.Itoa(tempItem.Appid.(int))
+			}
 			//bs, _ := json.Marshal(tempItem.Vars)
 			s := &TimetosendSql{
 				Sendlist: tempItem.Sendlist,
 				Account:  tempItem.Account,
-				Appid:    tempItem.Appid,
+				Appid:    appid,
 				Project:  tempItem.Project,
 				Address:  tempItem.Address,
 				Send:     tempItem.Send,
@@ -180,10 +191,17 @@ func mmsTimetosendHandler(data []byte) {
 			err = json.Unmarshal(result[1].([]byte), tempItem)
 			tempItem.Sendlist = sendlist
 			bs, _ := json.Marshal(tempItem.Vars)
+			var appid string
+			switch tempItem.Appid.(type) {
+			case string:
+				appid = tempItem.Appid.(string)
+			case int:
+				appid = strconv.Itoa(tempItem.Appid.(int))
+			}
 			s := &TimetosendSql{
 				Sendlist: tempItem.Sendlist,
 				Account:  tempItem.Account,
-				Appid:    tempItem.Appid,
+				Appid:    appid,
 				Project:  tempItem.Project,
 				Address:  tempItem.Address,
 				Send:     tempItem.Send,
